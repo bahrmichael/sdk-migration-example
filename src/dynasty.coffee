@@ -1,10 +1,24 @@
 # Main Dynasty Class
 
-aws = require('aws-sdk')
+{
+  DynamoDBClient
+  DescribeTableCommand
+  CreateTableCommand
+  DeleteTableCommand
+  ListTablesCommand
+  UpdateTableCommand
+  GetItemCommand
+  PutItemCommand
+  DeleteItemCommand
+  UpdateItemCommand
+  QueryCommand
+  ScanCommand
+  BatchGetItemCommand
+} = require('@aws-sdk/client-dynamodb')
+
 _ = require('lodash')
 Promise = require('bluebird')
 debug = require('debug')('dynasty')
-https = require('https')
 
 # See http://vq.io/19EiASB
 typeToAwsType =
@@ -18,37 +32,110 @@ typeToAwsType =
 lib = require('./lib')
 Table = lib.Table
 
+# Wrap v3 client to provide v2-compatible API with *Promise methods
+wrapClient = (client) ->
+  sendP = (CommandClass, params) ->
+    # Wrap native promise into Bluebird so .nodeify() keeps working
+    Promise.resolve client.send(new CommandClass(params))
+
+  cbify = (p, cb) ->
+    return p unless cb
+    p.then((data) -> cb(null, data)).catch((err) -> cb(err))
+    null
+
+  dynamo =
+    describeTablePromise: (params) -> sendP(DescribeTableCommand, params)
+    describeTable: (params, cb) -> cbify(sendP(DescribeTableCommand, params), cb)
+
+    createTablePromise: (params) -> sendP(CreateTableCommand, params)
+    createTable: (params, cb) -> cbify(sendP(CreateTableCommand, params), cb)
+
+    deleteTablePromise: (params) -> sendP(DeleteTableCommand, params)
+    deleteTable: (params, cb) -> cbify(sendP(DeleteTableCommand, params), cb)
+
+    listTablesPromise: (params) -> sendP(ListTablesCommand, params)
+    listTables: (params, cb) -> cbify(sendP(ListTablesCommand, params), cb)
+
+    updateTablePromise: (params) -> sendP(UpdateTableCommand, params)
+    updateTable: (params, cb) -> cbify(sendP(UpdateTableCommand, params), cb)
+
+    getItemPromise: (params) -> sendP(GetItemCommand, params)
+    getItem: (params, cb) -> cbify(sendP(GetItemCommand, params), cb)
+
+    putItemPromise: (params) -> sendP(PutItemCommand, params)
+    putItem: (params, cb) -> cbify(sendP(PutItemCommand, params), cb)
+
+    deleteItemPromise: (params) -> sendP(DeleteItemCommand, params)
+    deleteItem: (params, cb) -> cbify(sendP(DeleteItemCommand, params), cb)
+
+    updateItemPromise: (params) -> sendP(UpdateItemCommand, params)
+    updateItem: (params, cb) -> cbify(sendP(UpdateItemCommand, params), cb)
+
+    queryPromise: (params) -> sendP(QueryCommand, params)
+    query: (params, cb) -> cbify(sendP(QueryCommand, params), cb)
+
+    scanPromise: (params) -> sendP(ScanCommand, params)
+    scan: (params, cb) -> cbify(sendP(ScanCommand, params), cb)
+
+    batchGetItemPromise: (params) -> sendP(BatchGetItemCommand, params)
+    batchGetItem: (params, cb) -> cbify(sendP(BatchGetItemCommand, params), cb)
+
+  dynamo
+
 class Dynasty
 
   constructor: (credentials, url) ->
     debug "dynasty constructed."
-    # Default to credentials passed in, if any
+    
+    # Build client config
+    clientConfig = {}
+    
+    # Determine region
     if credentials.region
-      credentials.region = credentials.region
-    # Fall back on env variables
+      clientConfig.region = credentials.region
     else if process.env.AWS_DEFAULT_REGION
-      credentials.region = process.env.AWS_DEFAULT_REGION
+      clientConfig.region = process.env.AWS_DEFAULT_REGION
     else
-      credentials.region = 'us-east-1'
+      clientConfig.region = 'us-east-1'
 
-    if !credentials.accessKeyId
-      credentials.accessKeyId = process.env.AWS_ACCESS_KEY_ID
+    # Set up credentials if provided (otherwise SDK uses default chain)
+    creds = {}
+    hasCredentials = false
+    
+    if credentials.accessKeyId
+      creds.accessKeyId = credentials.accessKeyId
+      hasCredentials = true
+    else if process.env.AWS_ACCESS_KEY_ID
+      creds.accessKeyId = process.env.AWS_ACCESS_KEY_ID
+      hasCredentials = true
 
-    if !credentials.secretAccessKey
-      credentials.accessKeyId = process.env.AWS_SECRET_ACCESS_KEY
+    if credentials.secretAccessKey
+      creds.secretAccessKey = credentials.secretAccessKey
+      hasCredentials = true
+    else if process.env.AWS_SECRET_ACCESS_KEY
+      creds.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
+      hasCredentials = true
       
-    if !credentials.sessionToken
-       credentials.sessionToken = process.env.AWS_SESSION_TOKEN
+    if credentials.sessionToken
+      creds.sessionToken = credentials.sessionToken
+    else if process.env.AWS_SESSION_TOKEN
+      creds.sessionToken = process.env.AWS_SESSION_TOKEN
 
-    # Lock API version
-    credentials.apiVersion = '2012-08-10'
-
+    # Set endpoint for local DynamoDB
     if url and _.isString url
       debug "connecting to local dynamo at #{url}"
-      credentials.endpoint = new aws.Endpoint url
+      clientConfig.endpoint = url
+      # For local DynamoDB, provide dummy credentials if none set
+      if !hasCredentials
+        creds.accessKeyId = 'local'
+        creds.secretAccessKey = 'local'
+        hasCredentials = true
 
-    @dynamo = new aws.DynamoDB credentials
-    Promise.promisifyAll(@dynamo, {suffix: 'Promise'})
+    if hasCredentials
+      clientConfig.credentials = creds
+
+    dynamoClient = new DynamoDBClient(clientConfig)
+    @dynamo = wrapClient(dynamoClient)
     @name = 'Dynasty'
     @tables = {}
 
