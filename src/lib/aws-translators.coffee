@@ -2,6 +2,11 @@ _ = require('lodash')
 dataTrans = require('./data-translators')
 Promise = require('bluebird')
 debug = require('debug')('dynasty:aws-translators')
+{ DeleteItemCommand, BatchGetItemCommand, GetItemCommand, QueryCommand, ScanCommand, PutItemCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb')
+
+commandMap =
+  query: QueryCommand
+  scan: ScanCommand
 
 buildFilters = (target, filters) ->
   if filters
@@ -24,18 +29,22 @@ module.exports.processAllPages = (deferred, dynamo, functionName, params)->
   stats =
     Count: 0
 
-  resultHandler = (err, result) ->
-    if err then return deferred.reject(err)
+  CommandClass = commandMap[functionName]
 
-    deferred.notify dataTrans.fromDynamo result.Items
-    stats.Count += result.Count
-    if result.LastEvaluatedKey
-      params.ExclusiveStartKey = result.LastEvaluatedKey
-      dynamo[functionName] params, resultHandler
-    else
-      deferred.resolve stats
+  processPage = (pageParams) ->
+    dynamo.send(new CommandClass(pageParams))
+      .then (result) ->
+        deferred.notify dataTrans.fromDynamo result.Items
+        stats.Count += result.Count
+        if result.LastEvaluatedKey
+          pageParams.ExclusiveStartKey = result.LastEvaluatedKey
+          processPage(pageParams)
+        else
+          deferred.resolve stats
+      .catch (err) ->
+        deferred.reject(err)
 
-  dynamo[functionName] params, resultHandler
+  processPage(params)
   deferred.promise
 
 
@@ -80,7 +89,7 @@ module.exports.deleteItem = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.deleteItemPromise awsParams
+  @parent.dynamo.send(new DeleteItemCommand(awsParams))
 
 module.exports.batchGetItem = (params, callback, keySchema) ->
   awsParams = {}
@@ -90,7 +99,7 @@ module.exports.batchGetItem = (params, callback, keySchema) ->
 
   addAwsParams(awsParams, params)
 
-  @parent.dynamo.batchGetItemPromise(awsParams)
+  Promise.resolve(@parent.dynamo.send(new BatchGetItemCommand(awsParams)))
     .then (data) ->
       dataTrans.fromDynamo(data.Responses[name])
     .nodeify(callback)
@@ -102,7 +111,7 @@ module.exports.getItem = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.getItemPromise(awsParams)
+  Promise.resolve(@parent.dynamo.send(new GetItemCommand(awsParams)))
     .then (data)->
       dataTrans.fromDynamo(data.Item)
     .nodeify(callback)
@@ -120,7 +129,7 @@ module.exports.queryByHashKey = (key, callback, keySchema) ->
     AttributeValueList: [{}]
   awsParams.KeyConditions[hashKeyName].AttributeValueList[0][hashKeyType] = key
 
-  @parent.dynamo.queryPromise(awsParams)
+  Promise.resolve(@parent.dynamo.send(new QueryCommand(awsParams)))
     .then (data) ->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -144,7 +153,7 @@ module.exports.scan = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.scanPromise(awsParams)
+  Promise.resolve(@parent.dynamo.send(new ScanCommand(awsParams)))
     .then (data)->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -162,7 +171,7 @@ module.exports.query = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.queryPromise(awsParams)
+  Promise.resolve(@parent.dynamo.send(new QueryCommand(awsParams)))
     .then (data) ->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -175,7 +184,7 @@ module.exports.putItem = (obj, options, callback) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.putItemPromise(awsParams)
+  @parent.dynamo.send(new PutItemCommand(awsParams))
 
 module.exports.updateItem = (params, obj, options, callback, keySchema) ->
   key = getKey(params, keySchema)
@@ -201,4 +210,4 @@ module.exports.updateItem = (params, obj, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.updateItemPromise(awsParams)
+  @parent.dynamo.send(new UpdateItemCommand(awsParams))
