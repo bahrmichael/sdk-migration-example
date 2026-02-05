@@ -24,18 +24,20 @@ module.exports.processAllPages = (deferred, dynamo, functionName, params)->
   stats =
     Count: 0
 
-  resultHandler = (err, result) ->
-    if err then return deferred.reject(err)
+  processPage = (params) ->
+    dynamo[functionName](params).then((result) ->
+      deferred.notify dataTrans.fromDynamo result.Items
+      stats.Count += result.Count
+      if result.LastEvaluatedKey
+        params.ExclusiveStartKey = result.LastEvaluatedKey
+        processPage(params)
+      else
+        deferred.resolve stats
+    ).catch((err) ->
+      deferred.reject(err)
+    )
 
-    deferred.notify dataTrans.fromDynamo result.Items
-    stats.Count += result.Count
-    if result.LastEvaluatedKey
-      params.ExclusiveStartKey = result.LastEvaluatedKey
-      dynamo[functionName] params, resultHandler
-    else
-      deferred.resolve stats
-
-  dynamo[functionName] params, resultHandler
+  processPage(params)
   deferred.promise
 
 
@@ -80,7 +82,7 @@ module.exports.deleteItem = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.deleteItemPromise awsParams
+  @parent.dynamo.deleteItem awsParams
 
 module.exports.batchGetItem = (params, callback, keySchema) ->
   awsParams = {}
@@ -90,7 +92,7 @@ module.exports.batchGetItem = (params, callback, keySchema) ->
 
   addAwsParams(awsParams, params)
 
-  @parent.dynamo.batchGetItemPromise(awsParams)
+  @parent.dynamo.batchGetItem(awsParams)
     .then (data) ->
       dataTrans.fromDynamo(data.Responses[name])
     .nodeify(callback)
@@ -102,7 +104,7 @@ module.exports.getItem = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.getItemPromise(awsParams)
+  @parent.dynamo.getItem(awsParams)
     .then (data)->
       dataTrans.fromDynamo(data.Item)
     .nodeify(callback)
@@ -120,7 +122,7 @@ module.exports.queryByHashKey = (key, callback, keySchema) ->
     AttributeValueList: [{}]
   awsParams.KeyConditions[hashKeyName].AttributeValueList[0][hashKeyType] = key
 
-  @parent.dynamo.queryPromise(awsParams)
+  @parent.dynamo.query(awsParams)
     .then (data) ->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -144,7 +146,7 @@ module.exports.scan = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.scanPromise(awsParams)
+  @parent.dynamo.scan(awsParams)
     .then (data)->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -162,7 +164,7 @@ module.exports.query = (params, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.queryPromise(awsParams)
+  @parent.dynamo.query(awsParams)
     .then (data) ->
       dataTrans.fromDynamo(data.Items)
     .nodeify(callback)
@@ -175,7 +177,7 @@ module.exports.putItem = (obj, options, callback) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.putItemPromise(awsParams)
+  @parent.dynamo.putItem(awsParams)
 
 module.exports.updateItem = (params, obj, options, callback, keySchema) ->
   key = getKey(params, keySchema)
@@ -201,4 +203,4 @@ module.exports.updateItem = (params, obj, options, callback, keySchema) ->
 
   addAwsParams(awsParams, options)
 
-  @parent.dynamo.updateItemPromise(awsParams)
+  @parent.dynamo.updateItem(awsParams)
