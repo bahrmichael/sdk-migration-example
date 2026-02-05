@@ -21,7 +21,7 @@ module.exports = (grunt) ->
         command: 'npm publish'
     simplemocha:
       options:
-        globals: ['should']
+        globals: ['should', 'ch']
         timeout: 300
         ignoreLeaks: false
         ui: 'bdd'

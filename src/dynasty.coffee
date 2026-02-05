@@ -1,6 +1,6 @@
 # Main Dynasty Class
 
-aws = require('aws-sdk')
+{ DynamoDBClient, CreateTableCommand, DeleteTableCommand, UpdateTableCommand, DescribeTableCommand, ListTablesCommand } = require('@aws-sdk/client-dynamodb')
 _ = require('lodash')
 Promise = require('bluebird')
 debug = require('debug')('dynasty')
@@ -40,15 +40,11 @@ class Dynasty
     if !credentials.sessionToken
        credentials.sessionToken = process.env.AWS_SESSION_TOKEN
 
-    # Lock API version
-    credentials.apiVersion = '2012-08-10'
-
     if url and _.isString url
       debug "connecting to local dynamo at #{url}"
-      credentials.endpoint = new aws.Endpoint url
+      credentials.endpoint = url
 
-    @dynamo = new aws.DynamoDB credentials
-    Promise.promisifyAll(@dynamo, {suffix: 'Promise'})
+    @dynamo = new DynamoDBClient credentials
     @name = 'Dynasty'
     @tables = {}
 
@@ -80,7 +76,7 @@ class Dynasty
         ReadCapacityUnits: throughput.read
         WriteCapacityUnits: throughput.write
 
-    @dynamo.updateTablePromise(awsParams).nodeify(callback)
+    Promise.resolve(@dynamo.send(new UpdateTableCommand(awsParams))).nodeify(callback)
 
   # Create a new table. Wrapper around AWS createTable
   create: (name, params, callback = null) ->
@@ -157,12 +153,12 @@ class Dynasty
 
     debug "creating table with params #{JSON.stringify(awsParams, null, 4)}"
 
-    @dynamo.createTablePromise(awsParams).nodeify(callback)
+    Promise.resolve(@dynamo.send(new CreateTableCommand(awsParams))).nodeify(callback)
 
   # describe
   describe: (name, callback) ->
     debug "describe() - #{name}"
-    @dynamo.describeTablePromise(TableName: name).nodeify(callback)
+    Promise.resolve(@dynamo.send(new DescribeTableCommand(TableName: name))).nodeify(callback)
 
   # Drop a table. Wrapper around AWS deleteTable
   drop: (name, callback = null) ->
@@ -170,7 +166,7 @@ class Dynasty
     params =
       TableName: name
 
-    @dynamo.deleteTablePromise(params).nodeify(callback)
+    Promise.resolve(@dynamo.send(new DeleteTableCommand(params))).nodeify(callback)
 
   # List tables. Wrapper around AWS listTables
   list: (params, callback) ->
@@ -188,6 +184,6 @@ class Dynasty
         else if params.start is not null
           awsParams.ExclusiveStartTableName = params.start
 
-    @dynamo.listTablesPromise(awsParams).nodeify(callback)
+    Promise.resolve(@dynamo.send(new ListTablesCommand(awsParams))).nodeify(callback)
 
 module.exports = (credentials, url) -> new Dynasty(credentials, url)
