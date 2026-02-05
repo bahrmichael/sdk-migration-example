@@ -1,6 +1,6 @@
 # Main Dynasty Class
 
-aws = require('aws-sdk')
+{ DynamoDBClient, CreateTableCommand, DeleteTableCommand, DescribeTableCommand, ListTablesCommand, UpdateTableCommand } = require('@aws-sdk/client-dynamodb')
 _ = require('lodash')
 Promise = require('bluebird')
 debug = require('debug')('dynasty')
@@ -23,34 +23,35 @@ class Dynasty
   constructor: (credentials, url) ->
     debug "dynasty constructed."
     # Default to credentials passed in, if any
-    if credentials.region
-      credentials.region = credentials.region
-    # Fall back on env variables
+    region = if credentials.region
+      credentials.region
     else if process.env.AWS_DEFAULT_REGION
-      credentials.region = process.env.AWS_DEFAULT_REGION
+      process.env.AWS_DEFAULT_REGION
     else
-      credentials.region = 'us-east-1'
+      'us-east-1'
 
-    if !credentials.accessKeyId
-      credentials.accessKeyId = process.env.AWS_ACCESS_KEY_ID
+    clientConfig = { region }
 
-    if !credentials.secretAccessKey
-      credentials.accessKeyId = process.env.AWS_SECRET_ACCESS_KEY
-      
-    if !credentials.sessionToken
-       credentials.sessionToken = process.env.AWS_SESSION_TOKEN
+    # Build credentials object if provided
+    if credentials.accessKeyId or credentials.secretAccessKey
+      clientConfig.credentials =
+        accessKeyId: credentials.accessKeyId or process.env.AWS_ACCESS_KEY_ID
+        secretAccessKey: credentials.secretAccessKey or process.env.AWS_SECRET_ACCESS_KEY
+      if credentials.sessionToken or process.env.AWS_SESSION_TOKEN
+        clientConfig.credentials.sessionToken = credentials.sessionToken or process.env.AWS_SESSION_TOKEN
 
-    # Lock API version
-    credentials.apiVersion = '2012-08-10'
-
+    # Set endpoint for local DynamoDB
     if url and _.isString url
       debug "connecting to local dynamo at #{url}"
-      credentials.endpoint = new aws.Endpoint url
+      clientConfig.endpoint = url
 
-    @dynamo = new aws.DynamoDB credentials
-    Promise.promisifyAll(@dynamo, {suffix: 'Promise'})
+    @dynamo = new DynamoDBClient clientConfig
     @name = 'Dynasty'
     @tables = {}
+
+  # Helper method to send commands
+  send: (command) ->
+    Promise.resolve(@dynamo.send(command))
 
   loadAllTables: =>
     @list()
@@ -80,7 +81,7 @@ class Dynasty
         ReadCapacityUnits: throughput.read
         WriteCapacityUnits: throughput.write
 
-    @dynamo.updateTablePromise(awsParams).nodeify(callback)
+    @send(new UpdateTableCommand(awsParams)).nodeify(callback)
 
   # Create a new table. Wrapper around AWS createTable
   create: (name, params, callback = null) ->
@@ -157,12 +158,12 @@ class Dynasty
 
     debug "creating table with params #{JSON.stringify(awsParams, null, 4)}"
 
-    @dynamo.createTablePromise(awsParams).nodeify(callback)
+    @send(new CreateTableCommand(awsParams)).nodeify(callback)
 
   # describe
   describe: (name, callback) ->
     debug "describe() - #{name}"
-    @dynamo.describeTablePromise(TableName: name).nodeify(callback)
+    @send(new DescribeTableCommand(TableName: name)).nodeify(callback)
 
   # Drop a table. Wrapper around AWS deleteTable
   drop: (name, callback = null) ->
@@ -170,7 +171,7 @@ class Dynasty
     params =
       TableName: name
 
-    @dynamo.deleteTablePromise(params).nodeify(callback)
+    @send(new DeleteTableCommand(params)).nodeify(callback)
 
   # List tables. Wrapper around AWS listTables
   list: (params, callback) ->
@@ -188,6 +189,6 @@ class Dynasty
         else if params.start is not null
           awsParams.ExclusiveStartTableName = params.start
 
-    @dynamo.listTablesPromise(awsParams).nodeify(callback)
+    @send(new ListTablesCommand(awsParams)).nodeify(callback)
 
 module.exports = (credentials, url) -> new Dynasty(credentials, url)

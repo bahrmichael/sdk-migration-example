@@ -58,7 +58,7 @@
     "database"
   ],
   "dependencies": {
-    "aws-sdk": "^2.315.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
     "bluebird": "^3.5.2",
     "debug": "^4.0.1",
     "lodash": "^4.17.11"
