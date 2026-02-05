@@ -1,10 +1,10 @@
 # Main Dynasty Class
 
-aws = require('aws-sdk')
 _ = require('lodash')
 Promise = require('bluebird')
 debug = require('debug')('dynasty')
-https = require('https')
+
+DynamoAdapter = require('./lib/dynamo-adapter')
 
 # See http://vq.io/19EiASB
 typeToAwsType =
@@ -22,33 +22,37 @@ class Dynasty
 
   constructor: (credentials, url) ->
     debug "dynasty constructed."
-    # Default to credentials passed in, if any
+    
+    # Build v3 client configuration
+    config = {}
+    
+    # Set region
     if credentials.region
-      credentials.region = credentials.region
-    # Fall back on env variables
+      config.region = credentials.region
     else if process.env.AWS_DEFAULT_REGION
-      credentials.region = process.env.AWS_DEFAULT_REGION
+      config.region = process.env.AWS_DEFAULT_REGION
     else
-      credentials.region = 'us-east-1'
+      config.region = 'us-east-1'
 
-    if !credentials.accessKeyId
-      credentials.accessKeyId = process.env.AWS_ACCESS_KEY_ID
+    # Set credentials if provided
+    accessKeyId = credentials.accessKeyId || process.env.AWS_ACCESS_KEY_ID
+    secretAccessKey = credentials.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY
+    sessionToken = credentials.sessionToken || process.env.AWS_SESSION_TOKEN
 
-    if !credentials.secretAccessKey
-      credentials.accessKeyId = process.env.AWS_SECRET_ACCESS_KEY
-      
-    if !credentials.sessionToken
-       credentials.sessionToken = process.env.AWS_SESSION_TOKEN
+    if accessKeyId and secretAccessKey
+      config.credentials = {
+        accessKeyId: accessKeyId
+        secretAccessKey: secretAccessKey
+      }
+      if sessionToken
+        config.credentials.sessionToken = sessionToken
 
-    # Lock API version
-    credentials.apiVersion = '2012-08-10'
-
+    # Set endpoint for local DynamoDB
     if url and _.isString url
       debug "connecting to local dynamo at #{url}"
-      credentials.endpoint = new aws.Endpoint url
+      config.endpoint = url
 
-    @dynamo = new aws.DynamoDB credentials
-    Promise.promisifyAll(@dynamo, {suffix: 'Promise'})
+    @dynamo = new DynamoAdapter(config)
     @name = 'Dynasty'
     @tables = {}
 

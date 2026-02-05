@@ -1,5 +1,6 @@
 module.exports = {
 	Table: require('./Table'),
 	'aws-translators': require('./aws-translators'),
-	'data-translators': require('./data-translators')
+	'data-translators': require('./data-translators'),
+	'dynamo-adapter': require('./dynamo-adapter')
 };
