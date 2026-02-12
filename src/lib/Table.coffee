@@ -1,6 +1,7 @@
 awsTrans = require('./aws-translators')
 dataTrans = require('./data-translators')
 _ = require('lodash')
+Promise = require('bluebird')
 debug = require('debug')('dynasty')
 
 class Table
@@ -67,7 +68,7 @@ class Table
   # describe
   describe: (callback = null) ->
     debug 'describe() - ' + @name
-    @parent.dynamo.describeTablePromise(TableName: @name).nodeify(callback)
+    Promise.resolve(@parent.dynamo.describeTable(TableName: @name)).nodeify(callback)
 
   # drop
   drop: (callback = null) ->
