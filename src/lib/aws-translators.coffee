@@ -24,18 +24,20 @@ module.exports.processAllPages = (deferred, dynamo, functionName, params)->
   stats =
     Count: 0
 
-  resultHandler = (err, result) ->
-    if err then return deferred.reject(err)
+  processPage = () ->
+    dynamo[functionName](params)
+      .then (result) ->
+        deferred.notify dataTrans.fromDynamo result.Items
+        stats.Count += result.Count
+        if result.LastEvaluatedKey
+          params.ExclusiveStartKey = result.LastEvaluatedKey
+          processPage()
+        else
+          deferred.resolve stats
+      .catch (err) ->
+        deferred.reject(err)
 
-    deferred.notify dataTrans.fromDynamo result.Items
-    stats.Count += result.Count
-    if result.LastEvaluatedKey
-      params.ExclusiveStartKey = result.LastEvaluatedKey
-      dynamo[functionName] params, resultHandler
-    else
-      deferred.resolve stats
-
-  dynamo[functionName] params, resultHandler
+  processPage()
   deferred.promise
 
 

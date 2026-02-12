@@ -1,10 +1,9 @@
 # Main Dynasty Class
 
-aws = require('aws-sdk')
+{DynamoDBClient, DeleteItemCommand, GetItemCommand, PutItemCommand, ScanCommand, QueryCommand, UpdateItemCommand, BatchGetItemCommand, CreateTableCommand, UpdateTableCommand, DescribeTableCommand, DeleteTableCommand, ListTablesCommand} = require('@aws-sdk/client-dynamodb')
 _ = require('lodash')
 Promise = require('bluebird')
 debug = require('debug')('dynasty')
-https = require('https')
 
 # See http://vq.io/19EiASB
 typeToAwsType =
@@ -40,15 +39,38 @@ class Dynasty
     if !credentials.sessionToken
        credentials.sessionToken = process.env.AWS_SESSION_TOKEN
 
-    # Lock API version
-    credentials.apiVersion = '2012-08-10'
+    clientConfig =
+      region: credentials.region
+
+    if credentials.accessKeyId and credentials.secretAccessKey
+      clientConfig.credentials =
+        accessKeyId: credentials.accessKeyId
+        secretAccessKey: credentials.secretAccessKey
+      if credentials.sessionToken
+        clientConfig.credentials.sessionToken = credentials.sessionToken
 
     if url and _.isString url
       debug "connecting to local dynamo at #{url}"
-      credentials.endpoint = new aws.Endpoint url
+      clientConfig.endpoint = url
 
-    @dynamo = new aws.DynamoDB credentials
-    Promise.promisifyAll(@dynamo, {suffix: 'Promise'})
+    client = new DynamoDBClient clientConfig
+
+    # Create wrapper object with Promise-suffixed methods for backward compatibility
+    # Wrap with Promise.resolve() so results are Bluebird promises (supporting .nodeify, etc.)
+    @dynamo =
+      deleteItemPromise: (params) -> Promise.resolve(client.send(new DeleteItemCommand(params)))
+      getItemPromise: (params) -> Promise.resolve(client.send(new GetItemCommand(params)))
+      putItemPromise: (params) -> Promise.resolve(client.send(new PutItemCommand(params)))
+      scanPromise: (params) -> Promise.resolve(client.send(new ScanCommand(params)))
+      queryPromise: (params) -> Promise.resolve(client.send(new QueryCommand(params)))
+      updateItemPromise: (params) -> Promise.resolve(client.send(new UpdateItemCommand(params)))
+      batchGetItemPromise: (params) -> Promise.resolve(client.send(new BatchGetItemCommand(params)))
+      createTablePromise: (params) -> Promise.resolve(client.send(new CreateTableCommand(params)))
+      updateTablePromise: (params) -> Promise.resolve(client.send(new UpdateTableCommand(params)))
+      describeTablePromise: (params) -> Promise.resolve(client.send(new DescribeTableCommand(params)))
+      deleteTablePromise: (params) -> Promise.resolve(client.send(new DeleteTableCommand(params)))
+      listTablesPromise: (params) -> Promise.resolve(client.send(new ListTablesCommand(params)))
+
     @name = 'Dynasty'
     @tables = {}
 
